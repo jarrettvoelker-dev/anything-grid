@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#05070f" />
+    <meta name="description" content="Anything Grid — 行列交叉填词。每格填一个同时满足行与列条件的事物，支持 2×2 到 5×5，可创建、发布、分享你自己的题。" />
+    <title>Anything Grid · 行列交叉填词</title>
+    <script>
+      /* GitHub Pages 无服务端路由：404.html 会把路径塞进 ?p=，这里还原成真实路径，
+         这样 SPA 的 /grid/:id 在静态托管上也能直接打开。Cloudflare Worker 下不会命中。 */
+      (function () {
+        var q = new URLSearchParams(location.search);
+        var p = q.get("p");
+        if (p) {
+          q.delete("p");
+          var s = q.toString();
+          history.replaceState(null, "", p + (s ? "?" + s : "") + location.hash);
+        }
+      })();
+    </script>
+    <script type="module" crossorigin src="/anything-grid/assets/index-DjCwY1op.js"></script>
+    <link rel="stylesheet" crossorigin href="/anything-grid/assets/index-D172MzRS.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

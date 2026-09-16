@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Anything Grid</title>
+    <script>
+      /* SPA 兜底：把打不开的路径原样带给入口页，由它还原成真实路由 */
+      var p = location.pathname + location.search + location.hash;
+      location.replace("/anything-grid/" + "?p=" + encodeURIComponent(p));
+    </script>
+  </head>
+  <body></body>
+</html>
