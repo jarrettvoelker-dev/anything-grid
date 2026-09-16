@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-void text-ink font-sans antialiased;
+    /* 两层径向渐变制造空间纵深：左上冷光 + 右下暖光，都比纯色有"房间感" */
+    background-image:
+      radial-gradient(1200px 800px at 8% -12%, rgb(34 211 238 / 0.10), transparent 62%),
+      radial-gradient(900px 700px at 105% 108%, rgb(167 139 250 / 0.09), transparent 60%);
+    background-attachment: fixed;
+    overscroll-behavior: none;
+  }
+
+  ::selection {
+    background: rgb(34 211 238 / 0.3);
+  }
+
+  /* 细滚动条，不与暗色面板割裂 */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(255 255 255 / 0.14) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: rgb(255 255 255 / 0.14);
+    border-radius: 999px;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: rgb(255 255 255 / 0.24);
+  }
+
+  :focus-visible {
+    outline: 2px solid theme("colors.axis1");
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* 玻璃面板：整个应用的表面基元 */
+  .glass {
+    @apply border border-line bg-surface/70 backdrop-blur-xl;
+  }
+  .hairline {
+    @apply border-line;
+  }
+}
+
+/* 尊重系统的"减少动态效果"：所有动画与过渡降到近乎瞬时。
+   这不是可选项——前庭功能障碍用户会因大幅动效眩晕。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

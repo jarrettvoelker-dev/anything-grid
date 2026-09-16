@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>E2E</title></head>
+<body>
+<div id="TESTOUT">running…</div>
+<iframe id="app" style="width:1280px;height:800px;border:0"></iframe>
+<script>
+/* 端到端：在真浏览器里驱动真实 UI。单元测试只证明匹配引擎对，
+   这里证明它真的接到了格子上、并且整条游玩链路（含完成态、撤销、开关）是通的。 */
+(async function () {
+  const R = [];
+  const ok = (n, c, e) => R.push((c ? "PASS" : "FAIL") + " :: " + n + (e !== undefined ? "  [" + e + "]" : ""));
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  const doc = {
+    v: 1, id: "e2egrid", title: "E2E 测试", description: "", size: 2,
+    rows: [{ label: "能吃" }, { label: "不能吃" }],
+    cols: [{ label: "圆" }, { label: "方" }],
+    cells: {}, similarSearch: true, status: "unlisted", updatedAt: 0,
+  };
+  const seed = {
+    "0,0": { t: "橙子", al: ["橙", "橘子"], sy: ["柑"] },
+    "1,0": { t: "三明治", al: [], sy: [] },
+    "0,1": { t: "硬币", al: [], sy: [] },
+    "1,1": { t: "书", al: [], sy: ["书籍"] },
+  };
+  for (const k in seed) {
+    const [x, y] = k.split(",").map(Number);
+    doc.cells[k] = { x, y, status: "empty", answers: [{ id: "a" + x + y, text: seed[k].t, aliases: seed[k].al, synonyms: seed[k].sy }] };
+  }
+  localStorage.setItem("ag.doc.e2egrid", JSON.stringify(doc));
+  localStorage.setItem("ag.mine.v1", JSON.stringify([{ id: "e2egrid", title: "E2E 测试", size: 2, updatedAt: Date.now(), status: "unlisted" }]));
+
+  const frame = document.getElementById("app");
+  const goto = (path) => new Promise((res) => { frame.onload = res; frame.src = path; });
+
+  await goto("/grid/e2egrid");
+  await sleep(1200);
+
+  let w = frame.contentWindow, d = frame.contentDocument;
+  const cell = (k) => d.querySelector('[data-cell="' + k + '"]');
+  const progress = () => (d.body.textContent.match(/(\d+)\/4/) || [])[1];
+
+  /** React 受控输入必须走原生 setter —— 直接赋 .value 不会触发 onChange */
+  function type(el, text) {
+    const setter = Object.getOwnPropertyDescriptor(w.HTMLInputElement.prototype, "value").set;
+    setter.call(el, text);
+    el.dispatchEvent(new w.Event("input", { bubbles: true }));
+  }
+  /** 打开某格输入框、打字、回车 */
+  async function answer(k, text) {
+    cell(k).dispatchEvent(new w.MouseEvent("dblclick", { bubbles: true }));
+    await sleep(220);
+    const input = cell(k).querySelector("input");
+    if (!input) return false;
+    type(input, text);
+    input.dispatchEvent(new w.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await sleep(450);
+    return true;
+  }
+  const textOf = (k) => cell(k).textContent.trim();
+
+  try {
+    ok("1 棋盘渲染出 4 个格子", d.querySelectorAll("[data-cell]").length === 4,
+       "count=" + d.querySelectorAll("[data-cell]").length);
+    ok("2 初始进度 0/4", progress() === "0", "progress=" + progress());
+
+    /* --- 别名档 --- */
+    await answer("0,0", "橙");                       // "橙" 是"橙子"的别名，不是主答案
+    ok("3 别名「橙」被接受", textOf("0,0").includes("✓"), "格内文本=" + JSON.stringify(textOf("0,0")));
+    ok("3b 提交后编辑器自动关闭", !cell("0,0").querySelector("input"),
+       cell("0,0").querySelector("input") ? "输入框仍在" : "已关闭");
+    ok("3c 答案文本显示在格子里", textOf("0,0").includes("橙"),
+       "格内文本=" + JSON.stringify(textOf("0,0")));
+    ok("4 进度更新为 1/4", progress() === "1", "progress=" + progress());
+
+    /* --- 精确档 --- */
+    await answer("1,0", "三明治");
+    ok("5 精确答案被接受，进度 2/4", progress() === "2", "progress=" + progress());
+
+    /* --- 错误答案 --- */
+    await answer("0,1", "香蕉");
+    ok("6 无关答案判为不符", textOf("0,1").includes("✕"), "格内文本=" + JSON.stringify(textOf("0,1")));
+    ok("7 错误答案不计入进度", progress() === "2", "progress=" + progress());
+
+    /* --- 同义词档 --- */
+    await answer("1,1", "书籍");                     // "书籍" 是"书"的同义词
+    ok("8 同义词「书籍」被接受", textOf("1,1").includes("✓"), "格内文本=" + JSON.stringify(textOf("1,1")));
+    ok("9 进度 3/4", progress() === "3", "progress=" + progress());
+
+    /* --- 完成态 --- */
+    await answer("0,1", "硬币");
+    await sleep(600);
+    ok("10 四格填满后弹出完成卡片", d.body.textContent.includes("全部完成"),
+       "含完成文案=" + d.body.textContent.includes("全部完成") + " progress=" + progress());
+
+    /* --- 撤销 --- */
+    const sheetClose = d.querySelector('[aria-label="关闭"]');
+    if (sheetClose) sheetClose.dispatchEvent(new w.MouseEvent("click", { bubbles: true }));
+    await sleep(300);
+    w.dispatchEvent(new w.KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true }));
+    d.body.dispatchEvent(new w.KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true }));
+    await sleep(500);
+    ok("11 Ctrl+Z 撤销最后一格作答", progress() === "3", "撤销后 progress=" + progress());
+
+    /* --- 关闭相似搜索后，别名/同义词必须一律失效 --- */
+    await goto("/grid/e2egrid/edit");
+    await sleep(1300);
+    w = frame.contentWindow; d = frame.contentDocument;
+    const toggle = d.querySelector('input[type="checkbox"]');
+    ok("12 创建器里存在相似搜索开关", !!toggle, toggle ? "ok" : "无开关");
+    if (toggle) {
+      toggle.dispatchEvent(new w.MouseEvent("click", { bubbles: true }));
+      await sleep(700);
+      await goto("/grid/e2egrid");
+      await sleep(1300);
+      w = frame.contentWindow; d = frame.contentDocument;
+      const before = progress();
+      await answer("0,0", "橙");                     // 关掉之后，别名不该再被接受
+      const c = d.querySelector('[data-cell="0,0"]');
+      ok("13 关闭相似搜索后别名不再被接受", c.textContent.includes("✕"),
+         "格内文本=" + JSON.stringify(c.textContent.trim()) + " 关闭前进度=" + before);
+    }
+  } catch (e) {
+    R.push("FAIL :: 异常 [" + (e && e.message ? e.message : e) + "]");
+  }
+
+  document.getElementById("TESTOUT").textContent =
+    "\n@@TEST_BEGIN@@\n" + R.join("\n") +
+    "\n@@SUMMARY@@ PASS=" + R.filter((s) => s[0] === "P").length +
+    " FAIL=" + R.filter((s) => s[0] === "F").length + "\n@@TEST_END@@";
+})();
+</script>
+</body>
+</html>
