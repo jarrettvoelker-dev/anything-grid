@@ -2,17 +2,32 @@ import { useMemo, useState } from "react";
 import { navigate } from "../lib/router";
 import { SAMPLES } from "../lib/samples";
 import { listMine, newId, saveDoc, deleteDoc, type MineEntry } from "../lib/storage";
-import { GRID_SIZES, GRID_STATUS_LABEL, type GridDoc, type GridSize } from "../lib/types";
+import {
+  cellCount,
+  GRID_SIZES,
+  GRID_STATUS_LABEL,
+  JUDGE_MODE_LABEL,
+  sizeLabel,
+  type GridDoc,
+  type GridSize,
+} from "../lib/types";
 import { AdSlot, Button, Card } from "../components/ui";
 import { useStore } from "../state/store";
-import { createDoc } from "../state/store";
+import { createDoc2D, createDoc3D } from "../state/store";
 
 export function Home() {
   const resetHistory = useStore((s) => s.resetHistory);
   const [mine, setMine] = useState<MineEntry[]>(() => listMine());
 
   const startBlank = (size: GridSize) => {
-    const doc: GridDoc = { ...createDoc(size), id: newId() };
+    const doc: GridDoc = { ...createDoc2D(size), id: newId() };
+    resetHistory(doc);
+    saveDoc(doc);
+    navigate(`/grid/${doc.id}/edit`);
+  };
+
+  const startBlank3D = () => {
+    const doc: GridDoc = { ...createDoc3D(), id: newId() };
     resetHistory(doc);
     saveDoc(doc);
     navigate(`/grid/${doc.id}/edit`);
@@ -30,7 +45,7 @@ export function Home() {
     setMine(listMine());
   };
 
-  const total = useMemo(() => SAMPLES.reduce((n, s) => n + s.size * s.size, 0), []);
+  const total = useMemo(() => SAMPLES.reduce((n, s) => n + cellCount(s), 0), []);
 
   return (
     <div className="h-full overflow-y-auto">
@@ -39,16 +54,16 @@ export function Home() {
         <section className="animate-fade-up">
           <div className="mb-4 inline-flex items-center gap-2 rounded-pill border border-line bg-white/[0.03] px-3 py-1 text-micro text-ink-dim">
             <span className="h-1.5 w-1.5 rounded-full bg-ok" />
-            支持 2×2 ～ 5×5 · 可创建 · 可发布
+            平面 2×2 ～ 5×5 · 立体 3×3×3 · 可创建 · 可发布
           </div>
           <h1 className="max-w-2xl text-hero font-bold leading-[1.1] sm:text-[44px]">
             每格填一样
-            <span className="bg-gradient-to-r from-axis1 to-axis2 bg-clip-text text-transparent"> 同时满足行与列 </span>
+            <span className="bg-gradient-to-r from-axis1 to-axis2 bg-clip-text text-transparent"> 同时满足轴上所有条件 </span>
             的事物
           </h1>
           <p className="mt-4 max-w-xl text-lead text-ink-dim">
-            选一个尺寸，想两条轴上的条件，然后在每个交叉格里找答案。
-            开启相似搜索后，输入缩写或同义词也能被认出来。
+            平面题：两条轴交叉出 4～25 格。立体题：三条轴交叉出 27 格，可以转着看，也可以一层层看。
+            出题时选「预设答案」让玩家猜，或选「开放造词」让大家自己发挥。
           </p>
 
           <div className="mt-7 flex flex-wrap items-center gap-3">
@@ -64,6 +79,12 @@ export function Home() {
                 </button>
               ))}
             </div>
+            <button
+              onClick={startBlank3D}
+              className="h-11 rounded-xl border border-axis1/40 bg-axis1/[0.08] px-4 text-small font-medium text-ink transition hover:border-axis1/70 hover:bg-axis1/[0.14]"
+            >
+              新建 3D 题 · 27 格
+            </button>
             <Button variant="ghost" onClick={() => document.getElementById("samples")?.scrollIntoView({ behavior: "smooth" })}>
               先玩示例 ↓
             </Button>
@@ -85,18 +106,29 @@ export function Home() {
               >
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <span className="font-medium">{s.title}</span>
-                  <span className="rounded-pill bg-white/[0.08] px-2 py-0.5 font-mono text-micro text-ink-dim">
-                    {s.size}×{s.size}
+                  <span className="flex shrink-0 items-center gap-1.5">
+                    <span
+                      className={`rounded-pill px-2 py-0.5 text-micro ${
+                        s.judgeMode === "open" ? "bg-axis3/15 text-axis3" : "bg-white/[0.08] text-ink-dim"
+                      }`}
+                    >
+                      {JUDGE_MODE_LABEL[s.judgeMode]}
+                    </span>
+                    <span className="rounded-pill bg-white/[0.08] px-2 py-0.5 font-mono text-micro text-ink-dim">
+                      {sizeLabel(s)}
+                    </span>
                   </span>
                 </div>
                 <p className="line-clamp-2 text-small text-ink-faint">{s.description}</p>
                 <div className="mt-3 flex flex-wrap gap-1.5">
-                  {[...s.cols.slice(0, 3)].map((c) => (
-                    <span key={c.label} className="rounded-md border border-line bg-white/[0.03] px-1.5 py-0.5 text-micro text-ink-faint">
-                      {c.label}
+                  {s.axes[0].values.slice(0, 3).map((label) => (
+                    <span key={label} className="rounded-md border border-line bg-white/[0.03] px-1.5 py-0.5 text-micro text-ink-faint">
+                      {label}
                     </span>
                   ))}
-                  {s.cols.length > 3 && <span className="text-micro text-ink-faint">+{s.cols.length - 3}</span>}
+                  {s.axes[0].values.length > 3 && (
+                    <span className="text-micro text-ink-faint">+{s.axes[0].values.length - 3}</span>
+                  )}
                 </div>
               </button>
             ))}
@@ -120,7 +152,7 @@ export function Home() {
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-small font-medium">{m.title || "未命名题"}</div>
                     <div className="text-micro text-ink-faint">
-                      {m.size}×{m.size} · {GRID_STATUS_LABEL[m.status]}
+                      {m.dims === 3 ? `${m.size}×${m.size}×${m.size}` : `${m.size}×${m.size}`} · {GRID_STATUS_LABEL[m.status]}
                     </div>
                   </div>
                   <Button size="sm" variant="ghost" onClick={() => navigate(`/grid/${m.id}`)}>

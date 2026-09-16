@@ -1,53 +1,74 @@
-import type { Cell, CellAnswer, GridDoc, GridSize } from "./types";
-import { cellKey } from "./types";
+import { allCoords, cellKey, type Axis, type Cell, type CellAnswer, type GridDoc } from "./types";
 
 /* 示例题库。纯内容，不是逻辑 —— 题目尺寸与条件完全由数据驱动，
-   引擎里没有任何一处写死 3×3。这里覆盖 2×2 / 3×3 / 4×4 / 5×5 各一套。 */
+   引擎里没有任何一处写死 3×3 或 2×2。这里覆盖 2×2 / 3×3 / 4×4 / 5×5 各一套，
+   外加两套 3D 题演示开放造词模式。 */
 
 type CellSeed = { answers: string[]; aliases?: string[]; synonyms?: string[]; note?: string };
 
+const cellsFor = (axes: Axis[], seeds: Record<string, CellSeed>): Record<string, Cell> => {
+  const cells: Record<string, Cell> = {};
+  for (const [x, y, z] of allCoords({ axes })) {
+    const k = cellKey(x, y, z);
+    const seed = seeds[k];
+    const answers: CellAnswer[] = seed
+      ? seed.answers.map((text, i) => ({
+          id: `s${k.replace(/,/g, "")}${i}`,
+          text,
+          aliases: i === 0 ? (seed.aliases ?? []) : [],
+          synonyms: i === 0 ? (seed.synonyms ?? []) : [],
+          note: i === 0 ? seed.note : undefined,
+        }))
+      : [];
+    cells[k] = z === undefined ? { x, y, answers, status: "empty" } : { x, y, z, answers, status: "empty" };
+  }
+  return cells;
+};
+
+/** 2D 题：两条轴，values[x] 是列条件、values[y] 是行条件。棋盘边长由 rows/cols 的长度决定。 */
 function build(
-  size: GridSize,
   title: string,
   description: string,
   rows: string[],
   cols: string[],
   seeds: Record<string, CellSeed>,
 ): GridDoc {
-  const cells: Record<string, Cell> = {};
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const k = cellKey(x, y);
-      const seed = seeds[k];
-      const answers: CellAnswer[] = seed
-        ? seed.answers.map((text, i) => ({
-            id: `s${x}${y}${i}`,
-            text,
-            aliases: i === 0 ? (seed.aliases ?? []) : [],
-            synonyms: i === 0 ? (seed.synonyms ?? []) : [],
-            note: i === 0 ? seed.note : undefined,
-          }))
-        : [];
-      cells[k] = { x, y, answers, status: "empty" };
-    }
-  }
+  const axes: Axis[] = [
+    { label: "列条件", values: cols },
+    { label: "行条件", values: rows },
+  ];
   return {
-    v: 1,
+    v: 2,
     id: "",
     title,
     description,
-    size,
-    rows: rows.map((label) => ({ label })),
-    cols: cols.map((label) => ({ label })),
-    cells,
+    axes,
+    judgeMode: "answers",
+    cells: cellsFor(axes, seeds),
     similarSearch: true,
     status: "unlisted",
     updatedAt: 0,
   };
 }
 
+/** 3D 题：三条轴各 3 个特质，27 格，开放造词 —— 玩家自己想答案，AI 判冷门度。 */
+function build3D(title: string, description: string, axes: Axis[]): GridDoc {
+  return {
+    v: 2,
+    id: "",
+    title,
+    description,
+    axes,
+    judgeMode: "open",
+    cells: cellsFor(axes, {}),
+    similarSearch: false,
+    status: "unlisted",
+    updatedAt: 0,
+  };
+}
+
 export const SAMPLES: GridDoc[] = [
-  build(2, "入门 · 2×2", "四个格子，先熟悉一下行列交叉的玩法。", ["能吃", "不能吃"], ["圆", "方"], {
+  build("入门 · 2×2", "四个格子，先熟悉一下行列交叉的玩法。", ["能吃", "不能吃"], ["圆", "方"], {
     "0,0": { answers: ["橙子", "西瓜"], aliases: ["橙"], note: "圆形的能吃的食物" },
     "1,0": { answers: ["三明治", "饼干"], aliases: ["三文治"] },
     "0,1": { answers: ["硬币", "盘子"] },
@@ -55,7 +76,6 @@ export const SAMPLES: GridDoc[] = [
   }),
 
   build(
-    3,
     "日常物品 · 3×3",
     "每一格填一样同时满足该行与该列条件的日常物品。",
     ["能装进口袋", "需要用电", "会发出声音"],
@@ -74,7 +94,6 @@ export const SAMPLES: GridDoc[] = [
   ),
 
   build(
-    4,
     "生物图鉴 · 4×4",
     "横竖各四个条件，四条轴两两交叉出 16 个格子。",
     ["生活在水里", "会飞", "有毛", "有毒"],
@@ -98,7 +117,6 @@ export const SAMPLES: GridDoc[] = [
   ),
 
   build(
-    5,
     "抽象概念 · 5×5",
     "25 格。抽象题的答案是概念而非实物，靠相似搜索的语义档会更好玩。",
     ["能用数字衡量", "需要两个人以上", "会随时间衰减", "让人上瘾", "无法被拥有"],
@@ -114,6 +132,19 @@ export const SAMPLES: GridDoc[] = [
       "4,4": { answers: ["自由", "可能性"] },
     },
   ),
+
+  /* ---- 3D：开放造词，27 格无标准答案 ---- */
+  build3D("三维 · 物理三轴", "27 格，每格填一样同时满足三项特质的任意事物。自己造答案，AI 判冷门度。", [
+    { label: "尺寸", values: ["极小", "常规", "巨大"] },
+    { label: "速度", values: ["静止", "中速", "极快"] },
+    { label: "危险性", values: ["无害", "有风险", "致命"] },
+  ]),
+
+  build3D("三维 · 日常物品", "三条轴交叉出 27 格，答案越冷门分越低。", [
+    { label: "价格", values: ["便宜", "中等", "昂贵"] },
+    { label: "重量", values: ["很轻", "一般", "很重"] },
+    { label: "常见度", values: ["随处可见", "偶尔见到", "几乎见不到"] },
+  ]),
 ];
 
 export const findSample = (title: string) => SAMPLES.find((s) => s.title === title);

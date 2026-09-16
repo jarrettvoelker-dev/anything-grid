@@ -20,7 +20,7 @@ const DOT = 26; // 世界坐标下的点阵间距
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 /** 系统是否要求减少动态效果。惯性滚动对前庭敏感人群不友好，必须尊重。 */
-function usePrefersReducedMotion() {
+export function usePrefersReducedMotion() {
   const [reduced, setReduced] = useState(
     () => typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches,
   );

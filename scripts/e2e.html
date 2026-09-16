@@ -121,6 +121,135 @@
       ok("13 关闭相似搜索后别名不再被接受", c.textContent.includes("✕"),
          "格内文本=" + JSON.stringify(c.textContent.trim()) + " 关闭前进度=" + before);
     }
+    /* ================= 3D：立方体 / 平面层两种视图 ================= */
+    /* 三维题走 open 模式（无预设答案）。这里**故意不配裁判**，
+       验证"判定失败 ≠ 答案错误"—— 这是这个产品最不能撒谎的一处。 */
+    localStorage.removeItem("ag.judge.v1");
+    const d3 = {
+      v: 2, id: "e2e3d", title: "E2E 三维", description: "", judgeMode: "open",
+      axes: [
+        { label: "尺寸", values: ["极小", "常规", "巨大"] },
+        { label: "速度", values: ["静止", "中速", "极快"] },
+        { label: "危险", values: ["无害", "有风险", "致命"] },
+      ],
+      /* similarSearch 故意开着：验证隐藏「自动填充」的是 open 模式本身，不是这个开关 */
+      cells: {}, similarSearch: true, status: "unlisted", updatedAt: 0,
+    };
+    for (let z = 0; z < 3; z++) for (let y = 0; y < 3; y++) for (let x = 0; x < 3; x++)
+      d3.cells[x + "," + y + "," + z] = { x: x, y: y, z: z, answers: [], status: "empty" };
+    localStorage.setItem("ag.doc.e2e3d", JSON.stringify(d3));
+
+    await goto("/grid/e2e3d");
+    await sleep(1400);
+    w = frame.contentWindow; d = frame.contentDocument;
+
+    const scene = d.querySelector('[data-cube="1"]');
+    ok("14 三维题渲染出立方体场景", !!scene, scene ? "ok" : "无 .ag3d-scene");
+    ok("15 立方体有 27 个方块", d.querySelectorAll("[data-cell]").length === 27,
+       "count=" + d.querySelectorAll("[data-cell]").length);
+    ok("16 每个方块有 6 个面", d.querySelectorAll(".ag3d-face").length === 162,
+       "faces=" + d.querySelectorAll(".ag3d-face").length);
+
+    /* 点方块 → 底部浮层输入 → 提交。没配裁判，应落到"判定失败"而非"答错" */
+    const cube = d.querySelector('[data-cell="0,0,0"]');
+    cube.dispatchEvent(new w.PointerEvent("pointerup", { bubbles: true }));
+    await sleep(300);
+    const box = d.querySelector('input[placeholder*="同时符合"]');
+    ok("17 点方块弹出作答浮层", !!box, box ? "ok" : "无输入框");
+    if (box) {
+      type(box, "测试词");
+      box.dispatchEvent(new w.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      await sleep(600);
+      const c = d.querySelector('[data-cell="0,0,0"]');
+      ok("18 没配裁判时判为「判定失败」而非「答错」",
+         c.classList.contains("is-err") && !c.classList.contains("is-bad"),
+         "class=" + c.className);
+      ok("19 判定失败不计入完成进度",
+         (d.body.textContent.match(/(\d+)\/27/) || [])[1] === "0",
+         "progress=" + (d.body.textContent.match(/(\d+)\/27/) || [])[1]);
+    }
+
+    /* 切到平面层：一次只看一层，9 格 */
+    const flatBtn = [...d.querySelectorAll("button")].find((b) => b.textContent.trim() === "平面层");
+    ok("20 存在「平面层」切换按钮", !!flatBtn, flatBtn ? "ok" : "无按钮");
+    if (flatBtn) {
+      flatBtn.dispatchEvent(new w.MouseEvent("click", { bubbles: true }));
+      await sleep(500);
+      ok("21 平面层一次只显示 9 格", d.querySelectorAll("[data-cell]").length === 9,
+         "count=" + d.querySelectorAll("[data-cell]").length);
+      const tabs = d.querySelectorAll("[data-layer]");
+      ok("22 平面层有 3 个层页签", tabs.length === 3, "tabs=" + tabs.length);
+      if (tabs.length === 3) {
+        ok("23 平面层与立方体共用同一份作答",
+           !!d.querySelector('[data-cell="0,0,0"]')?.textContent.includes("测试词"),
+           "格内文本=" + JSON.stringify(d.querySelector('[data-cell="0,0,0"]')?.textContent));
+        tabs[2].dispatchEvent(new w.MouseEvent("click", { bubbles: true }));
+        await sleep(400);
+        ok("24 切到第 3 层看到的是 z=2 的格子", !!d.querySelector('[data-cell="0,0,2"]'),
+           "有 0,0,2 = " + !!d.querySelector('[data-cell="0,0,2"]'));
+      }
+    }
+
+    /* 三维题不该出现二维专属的「自动填充」（开放模式没有可比对的答案） */
+    ok("25 开放模式不提供「自动填充」", !d.body.textContent.includes("自动填充"),
+       "出现自动填充=" + d.body.textContent.includes("自动填充"));
+
+    /* ================= 3D 创建器 ================= */
+    await goto("/grid/e2e3d/edit");
+    await sleep(1500);
+    w = frame.contentWindow; d = frame.contentDocument;
+
+    const axisInputs = [...d.querySelectorAll("input")].filter((i) =>
+      (i.placeholder || "").includes("这条轴叫什么"));
+    ok("26 创建器为 3D 题渲染三条轴", axisInputs.length === 3, "轴数=" + axisInputs.length);
+    const traitInputs = [...d.querySelectorAll("input")].filter((i) =>
+      (i.placeholder || "").startsWith("第 ") && (i.placeholder || "").includes("个特质"));
+    ok("27 三条轴共 9 个特质输入框", traitInputs.length === 9, "特质数=" + traitInputs.length);
+
+    /* 改一个特质，回到游玩页应该看到新条件 —— 证明创建器写的是真文档 */
+    type(axisInputs[0], "体量");
+    type(traitInputs[0], "纳米级");
+    await sleep(900);
+    await goto("/grid/e2e3d");
+    await sleep(1400);
+    w = frame.contentWindow; d = frame.contentDocument;
+    ok("28 创建器改的轴名与特质出现在游玩页",
+       d.body.textContent.includes("体量") && d.body.textContent.includes("纳米级"),
+       "轴名=" + d.body.textContent.includes("体量") + " 特质=" + d.body.textContent.includes("纳米级"));
+
+    /* open 模式默认不该出现「格子的正确答案」面板 —— 那格根本没有标准答案 */
+    ok("29 开放模式不显示「格子的正确答案」面板",
+       !d.body.textContent.includes("格子的正确答案"),
+       "出现=" + d.body.textContent.includes("格子的正确答案"));
+
+    /* ================= 首页入口 ================= */
+    await goto("/");
+    await sleep(1300);
+    w = frame.contentWindow; d = frame.contentDocument;
+    const newBtn = [...d.querySelectorAll("button")].find((b) => (b.textContent || "").includes("新建 3D 题"));
+    ok("30 首页有「新建 3D 题」入口", !!newBtn, newBtn ? "ok" : "无入口");
+    if (newBtn) {
+      newBtn.dispatchEvent(new w.MouseEvent("click", { bubbles: true }));
+      await sleep(1500);
+      w = frame.contentWindow; d = frame.contentDocument;
+      /* 创建器默认开平面层 —— 分层编辑比转立方体顺手；立方体是切过去的可选视图 */
+      ok("31 新 3D 题创建器默认显示平面层（9 格 + 3 个层页签）",
+         d.querySelectorAll("[data-cell]").length === 9 && d.querySelectorAll("[data-layer]").length === 3,
+         "cells=" + d.querySelectorAll("[data-cell]").length + " layers=" + d.querySelectorAll("[data-layer]").length);
+      ok("32 新 3D 题默认开放造词（会提示配裁判）",
+         d.body.textContent.includes("AI 裁判"),
+         "含 AI 裁判=" + d.body.textContent.includes("AI 裁判"));
+      const cubeBtn = [...d.querySelectorAll("button")].find((b) => b.textContent.trim() === "立方体");
+      if (cubeBtn) {
+        cubeBtn.dispatchEvent(new w.MouseEvent("click", { bubbles: true }));
+        await sleep(600);
+        ok("33 创建器可切到立方体视图，显示全部 27 格",
+           d.querySelectorAll("[data-cell]").length === 27,
+           "count=" + d.querySelectorAll("[data-cell]").length);
+      } else {
+        ok("33 创建器可切到立方体视图，显示全部 27 格", false, "无「立方体」按钮");
+      }
+    }
   } catch (e) {
     R.push("FAIL :: 异常 [" + (e && e.message ? e.message : e) + "]");
   }

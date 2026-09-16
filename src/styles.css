@@ -60,6 +60,159 @@
   }
 }
 
+/* ============================================================================
+   3D 立方体视图（Cube3D）
+   这段必须用原生 CSS：立方体靠 transform-style: preserve-3d 与逐面 rotate/translate 拼出来，
+   Tailwind 的原子类表达不了这种变换链。移植自旧版单文件，配色改接设计系统的轴色。
+   层色：第 1 层 axis1（青）/ 第 2 层 axis2（紫）/ 第 3 层 axis3（粉）。
+   ========================================================================== */
+.ag3d-scene {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  perspective: 1600px;
+  cursor: grab;
+  touch-action: none;
+  overflow: hidden;
+}
+.ag3d-scene.is-dragging {
+  cursor: grabbing;
+}
+.ag3d-camera,
+.ag3d-world,
+.ag3d-wrap,
+.ag3d-cell {
+  transform-style: preserve-3d;
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+}
+.ag3d-camera {
+  position: relative;
+}
+.ag3d-wrap {
+  transition:
+    transform 0.42s cubic-bezier(0.22, 0.8, 0.3, 1),
+    opacity 0.25s;
+  cursor: pointer;
+}
+.ag3d-cell {
+  left: calc(var(--cs) / -2);
+  top: calc(var(--cs) / -2);
+  width: var(--cs);
+  height: var(--cs);
+}
+.ag3d-face {
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgb(255 255 255 / 0.05);
+  border: 1px solid rgb(255 255 255 / 0.15);
+  display: grid;
+  place-items: center;
+  transition:
+    background 0.18s,
+    border-color 0.18s,
+    box-shadow 0.18s;
+}
+.ag3d-f-front {
+  transform: translateZ(calc(var(--cs) / 2));
+}
+.ag3d-f-back {
+  transform: rotateY(180deg) translateZ(calc(var(--cs) / 2));
+}
+.ag3d-f-right {
+  transform: rotateY(90deg) translateZ(calc(var(--cs) / 2));
+}
+.ag3d-f-left {
+  transform: rotateY(-90deg) translateZ(calc(var(--cs) / 2));
+}
+.ag3d-f-top {
+  transform: rotateX(90deg) translateZ(calc(var(--cs) / 2));
+}
+.ag3d-f-bottom {
+  transform: rotateX(-90deg) translateZ(calc(var(--cs) / 2));
+}
+.ag3d-ans {
+  font-size: 11.5px;
+  line-height: 1.15;
+  text-align: center;
+  padding: 3px;
+  word-break: break-word;
+  max-height: 100%;
+  overflow: hidden;
+}
+/* 背面是镜像的，文字要再翻一次才正着读 */
+.ag3d-f-back .ag3d-ans {
+  transform: rotateY(180deg);
+}
+.ag3d-wrap.is-empty .ag3d-f-front .ag3d-ans {
+  font-size: 18px;
+  color: rgb(255 255 255 / 0.3);
+}
+.ag3d-wrap:hover .ag3d-face {
+  background: rgb(255 255 255 / 0.17);
+  border-color: rgb(255 255 255 / 0.42);
+}
+
+/* 已填：按层着色，一眼看出哪些格子在哪一层 */
+.ag3d-wrap.is-filled.ag3d-l0 .ag3d-face {
+  background: rgb(34 211 238 / 0.4);
+  border-color: rgb(34 211 238 / 0.85);
+}
+.ag3d-wrap.is-filled.ag3d-l1 .ag3d-face {
+  background: rgb(167 139 250 / 0.4);
+  border-color: rgb(167 139 250 / 0.85);
+}
+.ag3d-wrap.is-filled.ag3d-l2 .ag3d-face {
+  background: rgb(244 114 182 / 0.4);
+  border-color: rgb(244 114 182 / 0.85);
+}
+.ag3d-wrap.is-filled .ag3d-ans {
+  font-weight: 600;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.55);
+}
+.ag3d-wrap.is-ok .ag3d-face {
+  box-shadow: inset 0 0 0 2px rgb(52 211 153 / 0.95);
+}
+.ag3d-wrap.is-bad .ag3d-face {
+  box-shadow: inset 0 0 0 2px rgb(251 113 133 / 0.95);
+}
+/* 判定失败：虚线中性环。刻意不用红色 —— 红框的意思是"你答错了"，
+   而这里只是没判成（网关挂了 / 没配 key），把两者画成一样会误导玩家。 */
+.ag3d-wrap.is-err .ag3d-face {
+  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 0.3);
+  border-style: dashed;
+}
+.ag3d-wrap.is-dup .ag3d-face {
+  box-shadow: inset 0 0 0 2px rgb(250 204 21 / 0.95);
+}
+.ag3d-wrap.is-sel .ag3d-face {
+  border-color: #fff;
+  box-shadow:
+    0 0 0 2px rgb(255 255 255 / 0.8),
+    0 0 24px rgb(255 255 255 / 0.32);
+}
+.ag3d-wrap.is-dim {
+  opacity: 0.14;
+}
+.ag3d-wrap.is-busy .ag3d-face {
+  animation: pulse 1.05s infinite;
+}
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.42;
+  }
+}
+
 /* 尊重系统的"减少动态效果"：所有动画与过渡降到近乎瞬时。
    这不是可选项——前庭功能障碍用户会因大幅动效眩晕。 */
 @media (prefers-reduced-motion: reduce) {

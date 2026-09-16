@@ -1,10 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CanvasPlane } from "../components/CanvasPlane";
 import { Board, boardMetrics } from "../components/Board";
-import { Button, Card, Sheet } from "../components/ui";
+import { Cube3D, DEFAULT_SPACE } from "../components/Cube3D";
+import { AxisLegend, Flat3D } from "../components/Flat3D";
+import { JudgeSettings } from "../components/JudgeSettings";
+import { Button, Card, Segmented, Sheet } from "../components/ui";
 import { loadDoc, saveDoc } from "../lib/storage";
 import { gridUrl, navigate } from "../lib/router";
-import { CELL_STATUS_LABEL, type GridDoc } from "../lib/types";
+import { isJudgeReady } from "../lib/judge";
+import {
+  allCoords,
+  axisLen,
+  cellKey,
+  CELL_STATUS_LABEL,
+  comboText,
+  dimsOf,
+  sizeLabel,
+  type GridDoc,
+} from "../lib/types";
 import { useStore } from "../state/store";
 
 /** 把棋盘摆到画布正中。留出 HUD 的边距，别让标题压住格子。 */
@@ -30,13 +43,20 @@ export function Play({ id }: { id: string }) {
   const resetHistory = useStore((s) => s.resetHistory);
   const doc = useStore((s) => s.history.present);
   const autoFill = useStore((s) => s.autoFill);
+  const judgeAll = useStore((s) => s.judgeAll);
   const notify = useStore((s) => s.notify);
+  const judgeConfig = useStore((s) => s.judgeConfig);
   const planeRef = useRef<HTMLDivElement>(null);
 
   const [missing, setMissing] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [done, setDone] = useState(false);
+  const [cubeView, setCubeView] = useState(false);
+  const [space, setSpace] = useState(DEFAULT_SPACE);
+  const [judgingAll, setJudgingAll] = useState(false);
   const startedAt = useRef<number | null>(null);
+
+  const is3D = dimsOf(doc) === 3;
 
   useEffect(() => {
     const d = loadDoc(id);
@@ -48,9 +68,11 @@ export function Play({ id }: { id: string }) {
     startedAt.current = null;
     setElapsed(0);
     setDone(false);
+    /* 3D 题默认开立方体（旧版的主视图），平面层是给转不明白的人的备选 */
+    setCubeView(dimsOf(d) === 3);
   }, [id, resetHistory]);
 
-  useCenterBoard(doc.size, planeRef);
+  useCenterBoard(axisLen(doc, 0), planeRef);
 
   const stats = useMemo(() => {
     const cells = Object.values(doc.cells);
@@ -59,7 +81,8 @@ export function Play({ id }: { id: string }) {
     const wrong = cells.filter((c) => c.status === "incorrect").length;
     const near = cells.filter((c) => c.status === "similar").length;
     const auto = cells.filter((c) => c.status === "auto").length;
-    return { total, answered, wrong, near, auto };
+    const failed = cells.filter((c) => c.status === "error").length;
+    return { total, answered, wrong, near, auto, failed };
   }, [doc]);
 
   /* 首次作答开始计时 */
@@ -96,6 +119,17 @@ export function Play({ id }: { id: string }) {
     );
   }
 
+  /* 开放造词模式下「全部重判」是常用动作 —— 换了模型或改了提示词后要能一键重来 */
+  const rejudge = async () => {
+    setJudgingAll(true);
+    try {
+      const n = await judgeAll();
+      notify(n ? `已重新判定 ${n} 格` : "还没有可判定的格子");
+    } finally {
+      setJudgingAll(false);
+    }
+  };
+
   return (
     <div className="relative flex h-full flex-col">
       {/* 头部信息条 */}
@@ -104,6 +138,18 @@ export function Play({ id }: { id: string }) {
           <h1 className="truncate text-lead font-semibold">{doc.title}</h1>
           {doc.description && <p className="truncate text-micro text-ink-faint">{doc.description}</p>}
         </div>
+
+        {is3D && (
+          <Segmented
+            size="sm"
+            value={cubeView ? "cube" : "flat"}
+            onChange={(v) => setCubeView(v === "cube")}
+            options={[
+              { value: "cube", label: "立方体" },
+              { value: "flat", label: "平面层" },
+            ]}
+          />
+        )}
 
         {/* 进度条：用一条细线代替数字堆砌，一眼看出还差多少 */}
         <div className="flex items-center gap-2">
@@ -120,7 +166,7 @@ export function Play({ id }: { id: string }) {
 
         <span className="font-mono text-tiny text-ink-faint">{fmt(elapsed)}</span>
 
-        {doc.similarSearch && (
+        {doc.judgeMode === "answers" && doc.similarSearch && (
           <Button
             size="sm"
             variant="ghost"
@@ -132,38 +178,82 @@ export function Play({ id }: { id: string }) {
             自动填充
           </Button>
         )}
+        {doc.judgeMode === "open" && (
+          <Button size="sm" variant="ghost" disabled={judgingAll} onClick={rejudge}>
+            {judgingAll ? "重判中…" : "全部重判"}
+          </Button>
+        )}
         <Button size="sm" variant="outline" onClick={() => navigate(`/grid/${id}/edit`)}>
           编辑
         </Button>
       </div>
 
-      {/* 画布 */}
-      <div ref={planeRef} className="relative min-h-0 flex-1">
-        <CanvasPlane>
-          <Board doc={doc} mode="play" />
-        </CanvasPlane>
+      {/* 画布 / 立方体 */}
+      {is3D ? (
+        <div className="relative min-h-0 flex-1">
+          {cubeView ? (
+            <>
+              <Cube3D doc={doc} mode="play" space={space} />
+              <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center">
+                <div className="glass pointer-events-auto flex items-center gap-3 rounded-pill px-3 py-1.5 text-micro text-ink-dim">
+                  <span>分离</span>
+                  <input
+                    type="range"
+                    min={60}
+                    max={170}
+                    value={space}
+                    onChange={(e) => setSpace(Number(e.target.value))}
+                    className="w-24 accent-axis1"
+                    aria-label="方块间距"
+                  />
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="h-full overflow-y-auto">
+              <div className="mx-auto max-w-3xl px-4 py-5">
+                <Flat3D doc={doc} mode="play" />
+              </div>
+            </div>
+          )}
 
-        {!startedAt.current && (
-          <div className="pointer-events-none absolute bottom-4 left-4 z-10 max-w-[52ch] animate-fade-up">
-            <Card className="pointer-events-none py-2.5">
-              <p className="text-tiny text-ink-dim">
-                点格子开始作答 · 滚轮缩放 · 空格 + 拖拽平移 · Shift 拖拽框选 · 拖动方块可换位
-              </p>
-            </Card>
-          </div>
-        )}
+          {!startedAt.current && (
+            <div className="pointer-events-none absolute bottom-4 left-4 z-10 max-w-[46ch] animate-fade-up">
+              <Card className="pointer-events-none py-2.5">
+                <p className="text-tiny text-ink-dim">
+                  {cubeView ? "点方块输入答案 · 拖动旋转 · 滚轮/双指缩放" : "点格子输入答案 · 上方切换层"}
+                </p>
+              </Card>
+            </div>
+          )}
 
-        {(stats.wrong > 0 || stats.near > 0) && (
-          <div className="absolute left-4 top-3 z-10 flex gap-2">
-            {stats.wrong > 0 && (
-              <span className="glass rounded-pill px-2.5 py-1 text-micro text-bad">{stats.wrong} 格不符</span>
-            )}
-            {stats.near > 0 && (
-              <span className="glass rounded-pill px-2.5 py-1 text-micro text-warn">{stats.near} 格接近</span>
-            )}
+          {/* 立方体上只有颜色没有文字，轴名与特质得摆在这儿 */}
+          <div className="absolute left-4 top-3 z-10 flex flex-col items-start gap-2">
+            <AxisLegend doc={doc} />
+            <StatusPills stats={stats} />
           </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <div ref={planeRef} className="relative min-h-0 flex-1">
+          <CanvasPlane>
+            <Board doc={doc} mode="play" />
+          </CanvasPlane>
+
+          {!startedAt.current && (
+            <div className="pointer-events-none absolute bottom-4 left-4 z-10 max-w-[52ch] animate-fade-up">
+              <Card className="pointer-events-none py-2.5">
+                <p className="text-tiny text-ink-dim">
+                  点格子开始作答 · 滚轮缩放 · 空格 + 拖拽平移 · Shift 拖拽框选 · 拖动方块可换位
+                </p>
+              </Card>
+            </div>
+          )}
+
+          <div className="absolute left-4 top-3 z-10">
+            <StatusPills stats={stats} />
+          </div>
+        </div>
+      )}
 
       <ResultSheet
         open={done}
@@ -173,6 +263,33 @@ export function Play({ id }: { id: string }) {
         id={id}
         autoCount={stats.auto}
       />
+
+      {/* 开放模式没配裁判就玩不动，直接把设置摆到台面上 */}
+      {doc.judgeMode === "open" && !isJudgeReady(judgeConfig) && (
+        <div className="glass fixed inset-x-0 bottom-0 z-30 border-t p-3 sm:p-4">
+          <div className="mx-auto max-w-3xl">
+            <JudgeSettings />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 不符 / 接近 / 判定失败三种计数。error 单独列 —— 它不是"答错了"。 */
+function StatusPills({
+  stats,
+}: {
+  stats: { wrong: number; near: number; failed: number };
+}) {
+  if (!stats.wrong && !stats.near && !stats.failed) return null;
+  return (
+    <div className="flex flex-wrap gap-2">
+      {stats.wrong > 0 && <span className="glass rounded-pill px-2.5 py-1 text-micro text-bad">{stats.wrong} 格不符</span>}
+      {stats.near > 0 && <span className="glass rounded-pill px-2.5 py-1 text-micro text-warn">{stats.near} 格接近</span>}
+      {stats.failed > 0 && (
+        <span className="glass rounded-pill px-2.5 py-1 text-micro text-ink-faint">{stats.failed} 格没判成</span>
+      )}
     </div>
   );
 }
@@ -194,14 +311,23 @@ function ResultSheet({
 }) {
   const notify = useStore((s) => s.notify);
   const url = gridUrl(id);
+  const is3D = dimsOf(doc) === 3;
 
   const resultText = useMemo(() => {
-    const lines = [`我在 Anything Grid 完成了《${doc.title}》`, `${doc.size}×${doc.size} · 用时 ${fmt(elapsed)}`];
-    lines.push("");
-    for (let y = 0; y < doc.size; y++) {
-      const row: string[] = [];
-      for (let x = 0; x < doc.size; x++) row.push(doc.cells[`${x},${y}`]?.guess ?? "—");
-      lines.push(`${doc.rows[y]?.label ?? ""}: ${row.join(" ｜ ")}`);
+    const lines = [
+      `我在 Anything Grid 完成了《${doc.title}》`,
+      `${sizeLabel(doc)} · 用时 ${fmt(elapsed)}`,
+      "",
+    ];
+    /* 平面层视图那样按层分组导出 —— 27 格平铺成一行没法看 */
+    for (const [x, y, z] of allCoords(doc)) {
+      const cell = doc.cells[cellKey(x, y, z)];
+      if (z !== undefined && x === 0) {
+        if (z > 0) lines.push("");
+        lines.push(`— 第 ${z + 1} 层 · ${doc.axes[2].values[z]} —`);
+      }
+      if (x === 0) lines.push(`${doc.axes[1].values[y]}：`);
+      lines.push(`  ${comboText(doc, [x, y, z])} → ${cell?.guess ?? "—"}`);
     }
     lines.push("", url);
     return lines.join("\n");
@@ -233,6 +359,7 @@ function ResultSheet({
       open={open}
       onClose={onClose}
       title="🎉 全部完成"
+      wide={is3D}
       footer={
         <>
           <Button variant="ghost" onClick={() => copy(resultText, "成绩已复制")}>
@@ -250,26 +377,31 @@ function ResultSheet({
       <div className="rounded-card border border-ok/30 bg-gradient-to-br from-ok/[0.12] to-axis1/[0.08] p-5 text-center">
         <div className="text-hero font-bold tabular-nums">{fmt(elapsed)}</div>
         <div className="mt-1 text-small text-ink-dim">
-          {doc.size}×{doc.size} · {doc.size * doc.size} 格全部填对
+          {sizeLabel(doc)} · {Object.keys(doc.cells).length} 格全部填对
           {autoCount > 0 && ` · 其中 ${autoCount} 格为自动填充`}
         </div>
       </div>
 
       <div className="mt-4 space-y-1.5">
-        {Object.values(doc.cells)
-          .sort((a, b) => a.y - b.y || a.x - b.x)
-          .map((c) => (
-            <div key={`${c.x},${c.y}`} className="flex items-center gap-2 text-tiny">
+        {allCoords(doc).map(([x, y, z]) => {
+          const k = cellKey(x, y, z);
+          const c = doc.cells[k];
+          return (
+            <div key={k} className="flex items-center gap-2 text-tiny">
               <span className="w-10 shrink-0 font-mono text-ink-faint">
-                {c.y + 1}-{c.x + 1}
+                {z === undefined ? `${y + 1}-${x + 1}` : `${z + 1}-${y + 1}-${x + 1}`}
               </span>
-              <span className="w-24 shrink-0 truncate text-ink-faint">
-                {doc.cols[c.x]?.label} × {doc.rows[c.y]?.label}
+              <span className="w-40 shrink-0 truncate text-ink-faint" title={comboText(doc, [x, y, z])}>
+                {comboText(doc, [x, y, z])}
               </span>
-              <span className="truncate font-medium">{c.guess || "—"}</span>
-              <span className="ml-auto shrink-0 text-ink-faint">{CELL_STATUS_LABEL[c.status]}</span>
+              <span className="truncate font-medium">{c?.guess || "—"}</span>
+              <span className="ml-auto shrink-0 text-ink-faint">
+                {c?.rarity != null && c.status === "correct" && <span className="mr-2 text-ok">冷门 {c.rarity}</span>}
+                {CELL_STATUS_LABEL[c?.status ?? "empty"]}
+              </span>
             </div>
-          ))}
+          );
+        })}
       </div>
     </Sheet>
   );

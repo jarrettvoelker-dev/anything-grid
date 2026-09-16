@@ -14,13 +14,19 @@ SLUG="anything-grid"
 cd "$DIR"
 VITE_BASE="/$SLUG/" npm run build
 
-cd dist
+cd "$DIR/dist"
 rm -rf .git
 git init -q -b gh-pages
 git add -A
 git -c user.email="noreply@github.com" -c user.name="deploy" commit -q -m "deploy: $(date '+%Y-%m-%d %H:%M')"
 git remote add origin "$REPO"
-git push -q --force origin gh-pages
+
+# 有些网络下 github.com 的 HTTPS 被掐断，而 api.github.com 通 —— 那样 git push 必失败。
+# 这不是代码问题，是链路问题，所以退到 Git Data API 推同样的内容。
+if ! git push -q --force origin gh-pages 2>/dev/null; then
+  echo "git push 不通，改用 GitHub API 推送…"
+  python3 "$DIR/scripts/push_pages.py" "$DIR/dist" "jarrettvoelker-dev/$SLUG"
+fi
 
 echo "已推送 gh-pages，等待 Pages 构建…"
 for _ in $(seq 1 30); do

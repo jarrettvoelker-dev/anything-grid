@@ -1,9 +1,10 @@
 import { memo, useEffect, useRef, useState } from "react";
-import { cellKey, CELL_STATUS_LABEL, type Cell, type GridDoc } from "../lib/types";
+import { axisLen, cellKey, CELL_STATUS_LABEL, type Cell, type GridDoc } from "../lib/types";
 import { useStore } from "../state/store";
 
-/* 棋盘本体，渲染在 CanvasPlane 的 world 层里。
-   world 坐标 → 屏幕坐标由画布的 transform 统一负责，这里只管排版。 */
+/* 2D 棋盘本体，渲染在 CanvasPlane 的 world 层里。
+   world 坐标 → 屏幕坐标由画布的 transform 统一负责，这里只管排版。
+   3D 题走 Cube3D / Flat3D，不经过这里。 */
 
 export const CELL_W = 152;
 export const CELL_H = 106;
@@ -28,6 +29,7 @@ const STATUS_STYLE: Record<Cell["status"], string> = {
   incorrect: "border-bad/55 bg-bad/[0.12] text-ink-dim",
   similar: "border-warn/60 bg-warn/[0.12] text-ink-dim",
   auto: "border-axis1/45 bg-axis1/[0.10] text-ink-dim border-dashed",
+  error: "border-line-strong bg-white/[0.03] text-ink-faint border-dotted",
 };
 
 const STATUS_DOT: Record<Cell["status"], string> = {
@@ -37,6 +39,7 @@ const STATUS_DOT: Record<Cell["status"], string> = {
   incorrect: "✕",
   similar: "≈",
   auto: "⚡",
+  error: "!",
 };
 
 type Props = {
@@ -60,7 +63,7 @@ export const Board = memo(function Board({ doc, mode }: Props) {
     if (editing) inputRef.current?.focus();
   }, [editing]);
 
-  const n = doc.size;
+  const n = axisLen(doc, 0);
   const { w, h } = boardMetrics(n);
 
   const beginEdit = (k: string) => {
@@ -72,8 +75,7 @@ export const Board = memo(function Board({ doc, mode }: Props) {
   /* 输入法组合期间的 Enter 是"选词"不是"提交" —— 中文用户不处理这个会当场炸毛 */
   const commit = (k: string, e?: React.KeyboardEvent) => {
     if (e && (e.nativeEvent as unknown as { isComposing?: boolean }).isComposing) return;
-    const [x, y] = k.split(",").map(Number);
-    void submitGuess(x, y, draft);
+    void submitGuess(k, draft);
     setEditing(null);
   };
 
@@ -109,30 +111,30 @@ export const Board = memo(function Board({ doc, mode }: Props) {
 
   return (
     <div className="relative" style={{ width: w, height: h }}>
-      {/* 列条件 */}
-      {doc.cols.map((c, x) => (
+      {/* 列条件 —— axes[0] 的 values 与横坐标 x 一一对应 */}
+      {doc.axes[0]?.values.map((label, x) => (
         <div
           key={`c${x}`}
           className="absolute flex flex-col justify-end pb-2 text-center"
           style={{ left: HEAD_W + x * (CELL_W + GAP), top: 0, width: CELL_W, height: HEAD_H }}
         >
           <div className="text-micro font-semibold uppercase tracking-wider text-axis1/70">列 {x + 1}</div>
-          <div className="truncate text-small font-medium text-ink-dim" title={c.label}>
-            {c.label}
+          <div className="truncate text-small font-medium text-ink-dim" title={label}>
+            {label}
           </div>
         </div>
       ))}
 
       {/* 行条件 */}
-      {doc.rows.map((r, y) => (
+      {doc.axes[1]?.values.map((label, y) => (
         <div
           key={`r${y}`}
           className="absolute flex flex-col justify-center pr-3 text-right"
           style={{ left: 0, top: HEAD_H + y * (CELL_H + GAP), width: HEAD_W - GAP, height: CELL_H }}
         >
           <div className="text-micro font-semibold uppercase tracking-wider text-axis2/70">行 {y + 1}</div>
-          <div className="line-clamp-2 text-small font-medium text-ink-dim" title={r.label}>
-            {r.label}
+          <div className="line-clamp-2 text-small font-medium text-ink-dim" title={label}>
+            {label}
           </div>
         </div>
       ))}
