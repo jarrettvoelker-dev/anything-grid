@@ -3,3 +3,7 @@ dist/
 *.log
 .DS_Store
 .vite/
+
+# Python 缓存
+__pycache__/
+*.pyc

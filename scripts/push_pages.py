@@ -10,52 +10,10 @@ Token 从 `gh auth token` 取（需要 repo 作用域）。
 """
 
 import base64
-import json
 import os
-import subprocess
 import sys
-import urllib.error
-import urllib.request
 
-API = "https://api.github.com"
-
-
-def token() -> str:
-    out = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, check=True)
-    return out.stdout.strip()
-
-
-def call(tok: str, method: str, path: str, body: dict | None = None):
-    req = urllib.request.Request(
-        API + path,
-        method=method,
-        data=json.dumps(body).encode() if body is not None else None,
-        headers={
-            "Authorization": f"Bearer {tok}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "anything-grid-deploy",
-            **({"Content-Type": "application/json"} if body is not None else {}),
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=60) as r:
-            raw = r.read()
-            return json.loads(raw) if raw else {}
-    except urllib.error.HTTPError as e:
-        detail = e.read().decode(errors="replace")[:500]
-        raise SystemExit(f"{method} {path} → HTTP {e.code}\n{detail}") from None
-
-
-def call_or_none(tok: str, method: str, path: str):
-    """只在 404（资源不存在）时返回 None，别的错误照常炸 —— 否则认证失败会被
-    误判成"分支不存在"，然后去建一个本来该更新的分支。"""
-    try:
-        return call(tok, method, path)
-    except SystemExit as e:
-        if "HTTP 404" in str(e):
-            return None
-        raise
+from _ghapi import call, call_or_none, token
 
 
 def main() -> int:
