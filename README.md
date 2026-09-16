@@ -3,6 +3,8 @@
 行列交叉填词。每格填一个**同时满足它所在行条件与列条件**的事物。
 支持 2×2 / 3×3 / 4×4 / 5×5，可创建自己的题、发布、分享。
 
+**线上：** https://jarrettvoelker-dev.github.io/anything-grid/
+
 ## 现在能玩什么
 
 - **2D 空间画布**：无限平面，滚轮/捏合缩放，空格+拖拽平移，Shift 拖拽框选，Delete 清空，Ctrl/Cmd+Z 撤销
@@ -19,7 +21,11 @@ npm run dev          # http://localhost:5173
 npm test             # 单元测试：匹配引擎 + 撤销栈
 bash scripts/run_e2e.sh   # 端到端：真浏览器里驱动 UI（需要 Windows 自带 Edge）
 npm run build        # 构建到 dist/
+bash scripts/deploy.sh    # 发布到 GitHub Pages
 ```
+
+> 部署走「本地构建 + 推 `gh-pages` 产物」，不用 GitHub Actions —— 本机 gh token 没有
+> `workflow` 作用域，推不了 workflow 文件。`dist/` 在源码仓库里是 gitignore 的。
 
 ## 架构
 
